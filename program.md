@@ -10,11 +10,11 @@ You have access to the **wandb** and **sandbox-sweeps** skills. Invoke them when
 
 To set up a new experiment, work with the user to:
 
-1. **Resolve W&B credentials and project**: check `WANDB_API_KEY` and `WANDB_ENTITY` interactively — don't stop cold, work through each one:
-   - If `WANDB_API_KEY` is unset, ask the user to run `wandb login` or paste their key, then `export WANDB_API_KEY=<key>`.
-   - If `WANDB_ENTITY` is unset but `WANDB_API_KEY` is available, derive it automatically: `python -c "import wandb; print(wandb.Api().viewer()['entity'])"`. Set it in the session and confirm with the user.
+1. **Resolve W&B credentials and project**: work through each missing variable interactively — don't stop cold:
+   - If `WANDB_API_KEY` is unset, ask the user to paste their API key from https://wandb.ai/authorize, then set it: `export WANDB_API_KEY=<key>`. No `wandb login` is needed — the SDK reads the key directly from the environment.
+   - If `WANDB_ENTITY` is unset but `WANDB_API_KEY` is available, derive it automatically: `uv run python -c "import wandb; print(wandb.Api().viewer()['entity'])"`. Confirm the result with the user, then `export WANDB_ENTITY=<entity>`.
    - If `WANDB_PROJECT` is unset, propose `autoresearch` as the default and ask the user to confirm or supply an alternative. Then `export WANDB_PROJECT=<project>`.
-   - Once resolved, suggest the user add these exports to their shell profile so this is never needed again.
+   - Once all three are resolved, suggest the user add them to their shell profile (`~/.zshrc` or `~/.bashrc`) so setup is instant next time.
 
 2. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar25`). The branch `autoresearch/<tag>` must not already exist — this is a fresh run.
 3. **Create the branch**: `git checkout -b autoresearch/<tag>` from current master.

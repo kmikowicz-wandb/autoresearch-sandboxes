@@ -31,21 +31,14 @@ CONTAINER_IMAGE = "python:3.11-slim"
 # Edit this section before each sweep
 # ---------------------------------------------------------------------------
 SWEEP_CONFIG = {
-    "method": "bayes",
+    "method": "grid",
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
-    "parameters": {
-        # Example — replace with whatever you want to explore:
-        "DEPTH":     {"values": [6, 8, 10, 12]},
-        "MATRIX_LR": {"distribution": "log_uniform_values", "min": 0.01, "max": 0.08},
-    },
+    "parameters": {},
 }
 
 # One SandboxResources entry per sandbox. Duplicate, remove, or mix
 # accelerator types freely — the number of entries controls the fleet size.
 AGENTS = [
-    SandboxResources(accelerators="H100:1", cpus=16, memory=64),
-    SandboxResources(accelerators="H100:1", cpus=16, memory=64),
-    SandboxResources(accelerators="H100:1", cpus=16, memory=64),
     SandboxResources(accelerators="H100:1", cpus=16, memory=64),
 ]
 # ---------------------------------------------------------------------------
