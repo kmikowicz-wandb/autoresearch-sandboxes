@@ -13,6 +13,8 @@ import math
 import time
 from dataclasses import dataclass, asdict
 
+import wandb
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,7 +25,7 @@ cap = torch.cuda.get_device_capability()
 repo = "varunneal/flash-attention-3" if cap == (9, 0) else "kernels-community/flash-attn3"
 fa3 = get_kernel(repo).flash_attn_interface
 
-from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
+from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb, ensure_cache
 
 # ---------------------------------------------------------------------------
 # GPT Model
@@ -451,6 +453,49 @@ DEPTH = 8               # number of transformer layers
 DEVICE_BATCH_SIZE = 128  # per-device batch size (reduce if OOM)
 
 # ---------------------------------------------------------------------------
+# W&B — init here so sweep config can override the constants above
+# ---------------------------------------------------------------------------
+
+wandb.init(
+    project=os.environ.get("WANDB_PROJECT", "autoresearch"),
+    config={
+        "DEPTH": DEPTH,
+        "ASPECT_RATIO": ASPECT_RATIO,
+        "HEAD_DIM": HEAD_DIM,
+        "WINDOW_PATTERN": WINDOW_PATTERN,
+        "TOTAL_BATCH_SIZE": TOTAL_BATCH_SIZE,
+        "DEVICE_BATCH_SIZE": DEVICE_BATCH_SIZE,
+        "EMBEDDING_LR": EMBEDDING_LR,
+        "UNEMBEDDING_LR": UNEMBEDDING_LR,
+        "MATRIX_LR": MATRIX_LR,
+        "SCALAR_LR": SCALAR_LR,
+        "WEIGHT_DECAY": WEIGHT_DECAY,
+        "ADAM_BETAS": ADAM_BETAS,
+        "WARMUP_RATIO": WARMUP_RATIO,
+        "WARMDOWN_RATIO": WARMDOWN_RATIO,
+        "FINAL_LR_FRAC": FINAL_LR_FRAC,
+    },
+)
+
+# When running under a W&B sweep, the controller overrides these values.
+_cfg = wandb.config
+DEPTH             = _cfg.get("DEPTH",             DEPTH)
+ASPECT_RATIO      = _cfg.get("ASPECT_RATIO",      ASPECT_RATIO)
+HEAD_DIM          = _cfg.get("HEAD_DIM",          HEAD_DIM)
+WINDOW_PATTERN    = _cfg.get("WINDOW_PATTERN",    WINDOW_PATTERN)
+TOTAL_BATCH_SIZE  = _cfg.get("TOTAL_BATCH_SIZE",  TOTAL_BATCH_SIZE)
+DEVICE_BATCH_SIZE = _cfg.get("DEVICE_BATCH_SIZE", DEVICE_BATCH_SIZE)
+EMBEDDING_LR      = _cfg.get("EMBEDDING_LR",      EMBEDDING_LR)
+UNEMBEDDING_LR    = _cfg.get("UNEMBEDDING_LR",    UNEMBEDDING_LR)
+MATRIX_LR         = _cfg.get("MATRIX_LR",         MATRIX_LR)
+SCALAR_LR         = _cfg.get("SCALAR_LR",         SCALAR_LR)
+WEIGHT_DECAY      = _cfg.get("WEIGHT_DECAY",       WEIGHT_DECAY)
+ADAM_BETAS        = _cfg.get("ADAM_BETAS",         ADAM_BETAS)
+WARMUP_RATIO      = _cfg.get("WARMUP_RATIO",       WARMUP_RATIO)
+WARMDOWN_RATIO    = _cfg.get("WARMDOWN_RATIO",     WARMDOWN_RATIO)
+FINAL_LR_FRAC     = _cfg.get("FINAL_LR_FRAC",      FINAL_LR_FRAC)
+
+# ---------------------------------------------------------------------------
 # Setup: tokenizer, model, optimizer, dataloader
 # ---------------------------------------------------------------------------
 
@@ -462,6 +507,7 @@ device = torch.device("cuda")
 autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
 H100_BF16_PEAK_FLOPS = 989.5e12
 
+ensure_cache()
 tokenizer = Tokenizer.from_directory()
 vocab_size = tokenizer.get_vocab_size()
 print(f"Vocab size: {vocab_size:,}")
@@ -588,6 +634,18 @@ while True:
     remaining = max(0, TIME_BUDGET - total_training_time)
 
     print(f"\rstep {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining:.0f}s    ", end="", flush=True)
+    wandb.log({
+        "train/loss": train_loss_f,
+        "train/smooth_loss": debiased_smooth_loss,
+        "train/lr_multiplier": lrm,
+        "train/muon_momentum": muon_momentum,
+        "train/weight_decay": muon_weight_decay,
+        "perf/step_ms": dt * 1000,
+        "perf/tokens_per_sec": tok_per_sec,
+        "perf/mfu_pct": mfu,
+        "perf/epoch": epoch,
+        "perf/progress_pct": pct_done,
+    }, step=step)
 
     # GC management (Python's GC causes ~500ms stalls)
     if step == 0:
@@ -628,3 +686,15 @@ print(f"total_tokens_M:   {total_tokens / 1e6:.1f}")
 print(f"num_steps:        {step}")
 print(f"num_params_M:     {num_params / 1e6:.1f}")
 print(f"depth:            {DEPTH}")
+
+wandb.log({
+    "final/val_bpb": val_bpb,
+    "final/training_seconds": total_training_time,
+    "final/total_seconds": t_end - t_start,
+    "final/startup_seconds": startup_time,
+    "final/peak_vram_mb": peak_vram_mb,
+    "final/mfu_pct": steady_state_mfu,
+    "final/total_tokens_M": total_tokens / 1e6,
+    "final/num_steps": step,
+})
+wandb.finish()
