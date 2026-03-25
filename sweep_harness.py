@@ -16,8 +16,9 @@ import threading
 
 import wandb
 from wandb.sandbox import Session
+from wandb.sdk.launch.create_job import create_job
 from wandb.wandb_managed_agent import (
-    CodeArtifactSource,
+    WBCodeArtifactJobSource,
     ManagedAgent,
     SandboxResources,
 )
@@ -33,13 +34,14 @@ CONTAINER_IMAGE = "python:3.11-slim"
 SWEEP_CONFIG = {
     "method": "grid",
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
-    "parameters": {},
+    "program": "train.py",
+    "parameters": {"DEPTH": {"value": 8}},
 }
 
 # One SandboxResources entry per sandbox. Duplicate, remove, or mix
 # accelerator types freely — the number of entries controls the fleet size.
 AGENTS = [
-    SandboxResources(accelerators="H100:1", cpus=16, memory=64),
+    SandboxResources(accelerators=None, cpus=4, memory=16),
 ]
 # ---------------------------------------------------------------------------
 
@@ -60,16 +62,16 @@ def _printer_thread(log_queue: queue.Queue, label_width: int) -> None:
 def main() -> None:
     # 1. Upload current code as a job artifact via the W&B SDK
     print("Uploading code artifact...")
-    artifact = wandb.create_job(
+    artifact = create_job(
         job_type="code",
         path="./agent",
         entity=ENTITY,
         project=PROJECT,
         name="autoresearch-job",
-        entrypoint="train.py",
+        entrypoint="python train.py",
     )
     if artifact is None:
-        raise RuntimeError("wandb.create_job returned None — artifact upload failed")
+        raise RuntimeError("create_job returned None — artifact upload failed")
     job_artifact_id = f"{ENTITY}/{PROJECT}/autoresearch-job:latest"
     print(f"Job artifact: {job_artifact_id}")
 
@@ -79,7 +81,7 @@ def main() -> None:
     print(f"Sweep: https://wandb.ai/{full_sweep_id}")
 
     # 3. Build source and managed agent (shared across all sandboxes)
-    source  = CodeArtifactSource(job_artifact_id)
+    source  = WBCodeArtifactJobSource(job_artifact_id)
     managed = ManagedAgent(
         sweep_id=sweep_id,
         entity=ENTITY,
@@ -98,8 +100,8 @@ def main() -> None:
     )
     printer.start()
 
-    # 5. Create and start each sandbox line-by-line, then collect futures
-    futures: list[concurrent.futures.Future] = []
+    # 5. Create and start each sandbox line-by-line, collect RunHandles
+    handles = []
     with Session() as session:
         for i, resources in enumerate(AGENTS):
             sandbox = session.sandbox(
@@ -109,11 +111,24 @@ def main() -> None:
             managed.consume_sandbox(sandbox)
             sandbox.start().result()
             managed.log_device_resources(sandbox, log_queue, label=f"agent-{i}")
-            future, _ = source.attach(sandbox, i, log_queue, managed._sweep_path)
-            futures.append(future)
+
+            handle = source.start(sandbox, managed._sweep_path)
+            handles.append(handle)
+
+            if handle.log_lines is not None:
+                lbl = f"agent-{i}"
+                threading.Thread(
+                    target=lambda lines=handle.log_lines, l=lbl: [
+                        log_queue.put((l, line)) for line in lines
+                    ],
+                    daemon=True,
+                ).start()
 
         # 6. Block until every agent finishes
-        concurrent.futures.wait(futures)
+        concurrent.futures.wait([h.future for h in handles])
+
+    for handle in handles:
+        handle.close()
 
     log_queue.put(_STOP)
     printer.join()

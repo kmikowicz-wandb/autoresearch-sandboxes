@@ -17,4 +17,4 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-wandb = { path = "../sdk/wandb", editable = true }
+wandb = { path = "../wandb", editable = true }
