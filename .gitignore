@@ -24,3 +24,6 @@ results.tsv
 
 # wandb logs
 wandb/
+
+# Local Claude Code settings (may contain personal config)
+.claude/settings.local.json

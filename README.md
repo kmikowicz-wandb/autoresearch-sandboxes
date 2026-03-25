@@ -23,18 +23,20 @@ If you are new to neural networks, this ["Dummy's Guide"](https://x.com/hooeem/s
 **Requirements:** A single NVIDIA GPU (tested on H100), Python 3.10+, [uv](https://docs.astral.sh/uv/).
 
 ```bash
-
 # 1. Install uv project manager (if you don't already have it)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 2. Install dependencies
 uv sync
 
-# 3. Download data and train tokenizer (one-time, ~2 min)
-uv run prepare.py
+# 3. Log in to Weights & Biases (one-time — stores credentials in ~/.netrc)
+uv run wandb login
 
-# 4. Manually run a single training experiment (~5 min)
-uv run train.py
+# 4. Download data, train tokenizer, and upload to W&B (one-time, ~2 min)
+uv run prepare.py --upload
+
+# 5. Launch a sweep
+uv run sweep_harness.py
 ```
 
 If the above commands all work ok, your setup is working and you can go into autonomous research mode.
