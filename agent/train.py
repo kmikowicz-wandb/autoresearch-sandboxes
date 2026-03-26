@@ -88,6 +88,7 @@ class CharTransformer(nn.Module):
         self.blocks  = nn.ModuleList([Block(n_embd, n_head, dropout) for _ in range(n_layer)])
         self.ln_f    = nn.LayerNorm(n_embd)
         self.head    = nn.Linear(n_embd, vocab_size, bias=False)
+        self.head.weight = self.tok_emb.weight  # weight tying
         self._init_weights()
 
     def _init_weights(self):
