@@ -1,22 +1,19 @@
 """
 Sweep harness for autoresearch parallel experiments.
 
-Edit SWEEP_CONFIG and AGENTS below, then run:
+Edit SWEEP_CONFIG, NUM_AGENTS, and RESOURCES below, then run:
     uv run sweep_harness.py
 
-Each entry in AGENTS defines one sandbox. Duplicate, remove, or mix
-accelerator types to build a heterogeneous fleet. Blocks until all
-sandboxes finish, then writes last_sweep_result.json.
+Blocks until all agents finish, then writes last_sweep_result.json.
 """
-import concurrent.futures
 import json
 import os
 
 import wandb
-from wandb.sandbox import Session
 from wandb.sdk.launch.create_job import create_job
 from wandb.wandb_managed_agent import (
-    ManagedAgent,
+    ManagedAgentSession,
+    ManagedAgentSessionConfig,
     SandboxResources,
     WBCodeArtifactJobSource,
 )
@@ -32,12 +29,13 @@ CONTAINER_IMAGE = "python:3.11-slim"
 SWEEP_CONFIG = {
     "method": "grid",
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
-    "parameters": {},
+    "parameters": {
+        "n_layer": {"values": [4]},
+    },
 }
 
-AGENTS = [
-    SandboxResources(cpus=4, memory=8),
-]
+NUM_AGENTS = 1
+RESOURCES  = SandboxResources(cpus=4, memory=8)
 # ---------------------------------------------------------------------------
 
 
@@ -57,50 +55,38 @@ def main() -> None:
     print(f"Job artifact: {job_artifact_id}")
 
     # 2. Create the sweep
-    sweep_id = wandb.sweep(SWEEP_CONFIG, entity=ENTITY, project=PROJECT)
+    sweep_id      = wandb.sweep(SWEEP_CONFIG, entity=ENTITY, project=PROJECT)
     full_sweep_id = f"{ENTITY}/{PROJECT}/{sweep_id}"
     print(f"Sweep: https://wandb.ai/{full_sweep_id}")
 
-    # 3. Build source and managed agent
-    source  = WBCodeArtifactJobSource(job_artifact_id)
-    managed = ManagedAgent(sweep_id=sweep_id, entity=ENTITY, project=PROJECT, source=source)
-    image   = managed.resolve_container_image(default=CONTAINER_IMAGE)
+    # 3. Run agents (attach_logs=True streams stdout/stderr from all sandboxes)
+    cfg = ManagedAgentSessionConfig(
+        sweep_id=sweep_id,
+        entity=ENTITY,
+        project=PROJECT,
+        source=WBCodeArtifactJobSource(job_artifact_id),
+        num_agents=NUM_AGENTS,
+        container_image=CONTAINER_IMAGE,
+        resources=RESOURCES,
+    )
+    with ManagedAgentSession(cfg) as session:
+        session.run(attach_logs=True)
 
-    # 4. Launch sandboxes, block until all finish
-    handles = []
-    with Session() as session:
-        for resources in AGENTS:
-            sandbox = session.sandbox(
-                container_image=image,
-                resources=resources.to_cwsandbox_dict(),
-            )
-            managed.consume_sandbox(sandbox)
-            sandbox.start().result()
-            handles.append(source.start(sandbox, managed._sweep_path))
-
-        concurrent.futures.wait([h.future for h in handles])
-
-    for h in handles:
-        h.close()
-
-    # 5. Report best result
-    best = wandb.Api().sweep(full_sweep_id).best_run()
-    val_bpb      = best.summary_metrics.get("final/val_bpb", float("inf"))
-    peak_vram_mb = best.summary_metrics.get("final/peak_vram_mb", 0.0)
+    # 4. Report best result
+    best    = wandb.Api().sweep(full_sweep_id).best_run()
+    val_bpb = best.summary_metrics.get("final/val_bpb", float("inf"))
 
     print("\n=== SWEEP COMPLETE ===")
-    print(f"Best run:     {best.id}")
-    print(f"val_bpb:      {val_bpb:.6f}")
-    print(f"peak_vram_mb: {peak_vram_mb:.1f}")
-    print(f"Config:       {json.dumps(dict(best.config), indent=2)}")
-    print(f"Sweep URL:    https://wandb.ai/{full_sweep_id}")
+    print(f"Best run:  {best.id}")
+    print(f"val_bpb:   {val_bpb:.6f}")
+    print(f"Config:    {json.dumps(dict(best.config), indent=2)}")
+    print(f"Sweep URL: https://wandb.ai/{full_sweep_id}")
 
     result = {
-        "sweep_id": full_sweep_id,
+        "sweep_id":    full_sweep_id,
         "best_run_id": best.id,
-        "val_bpb": val_bpb,
-        "peak_vram_mb": peak_vram_mb,
-        "config": dict(best.config),
+        "val_bpb":     val_bpb,
+        "config":      dict(best.config),
     }
     with open("last_sweep_result.json", "w") as f:
         json.dump(result, f, indent=2)

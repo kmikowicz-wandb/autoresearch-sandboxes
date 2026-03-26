@@ -43,7 +43,7 @@ After all agents finish, `sweep_harness.py` writes `last_sweep_result.json`. Use
 
 **What you CAN do:**
 - Modify `agent/train.py` — this is the only model file you edit. Everything is fair game: architecture, optimizer, hyperparameters, learning rate schedule, etc.
-- Modify `sweep_harness.py` — edit `SWEEP_CONFIG` and the `AGENTS` list before each sweep. Each entry in `AGENTS` is a `SandboxResources` defining one sandbox; the length controls parallelism. Mix accelerator types for a heterogeneous fleet. CPU-only sandboxes (`SandboxResources(cpus=4, memory=8)`) are fine and cheap for this problem.
+- Modify `sweep_harness.py` — edit `SWEEP_CONFIG`, `NUM_AGENTS`, and `RESOURCES` before each sweep. `NUM_AGENTS` controls how many sandboxes run in parallel. `RESOURCES` is a single `SandboxResources` applied to all agents. CPU-only sandboxes (`SandboxResources(cpus=4, memory=8)`) are fine and cheap for this problem.
 
 **What you CANNOT do:**
 - Modify `agent/prepare.py`. It is read-only. It defines `TIME_BUDGET`, `MAX_SEQ_LEN`, `evaluate_bpb`, and `ensure_cache`.
@@ -123,7 +123,7 @@ LOOP FOREVER:
 
    Decide what to vary. Edit `SWEEP_CONFIG` and `AGENTS` in `sweep_harness.py`. Use `bayes` for efficient multi-parameter search, `grid` for small exhaustive searches.
 
-   Scale the fleet by adding or removing entries in `AGENTS`. CPU sandboxes (`SandboxResources(cpus=4, memory=8)`) are cheap; use them for most runs. Add GPU sandboxes for large-model candidates if needed. Consult the **sandbox-sweeps** skill for resource config syntax.
+   Scale the fleet by increasing `NUM_AGENTS`. CPU sandboxes (`SandboxResources(cpus=4, memory=8)`) are cheap; use them for most runs. Switch `RESOURCES` to a GPU instance for larger-model candidates if needed. Consult the **sandbox-sweeps** skill for resource config syntax.
 
    If your hypothesis involves a structural change, edit `agent/train.py` first.
 
