@@ -1,10 +1,7 @@
 # autoresearch
 
-![teaser](progress.png)
-
-*One day, frontier AI research used to be done by meat computers in between eating, sleeping, having other fun, and synchronizing once in a while using sound wave interconnect in the ritual of "group meeting". That era is long gone. Research is now entirely the domain of autonomous swarms of AI agents running across compute cluster megastructures in the skies. The agents claim that we are now in the 10,205th generation of the code base, in any case no one could tell if that's right or wrong as the "code" is now a self-modifying binary that has grown beyond human comprehension. This repo is the story of how it all began. -@karpathy, March 2026*.
-
-The idea: give an AI agent a small but real training setup and let it experiment autonomously overnight. It modifies the code, launches a parallel sweep across sandbox agents, checks if the results improved, keeps or discards, and repeats. You wake up to a W&B dashboard of experiments and (hopefully) a better model. The core idea is that you're not touching any of the Python files like you normally would as a researcher. Instead, you are programming the `program.md` Markdown file that provides context to the AI agent and sets up your autonomous research loop. A bit more context on this project is here in this [tweet](https://x.com/karpathy/status/2029701092347630069) and [this tweet](https://x.com/karpathy/status/2031135152349524125).
+This is a fork of autoresearch that parallelizes research using W&B sandboxes as compute, and
+W&B sweeps as the exploration and experiment tracking framework.
 
 ## How it works
 
@@ -76,14 +73,6 @@ pyproject.toml    — local/orchestration dependencies
 - **CPU-capable by default.** The training problem (character-level Transformer on TinyShakespeare) runs on CPU or GPU. Sandboxes default to CPU (`SandboxResources(cpus=4, memory=8)`), making sweeps cheap. Switch to a GPU instance if the model grows large enough to benefit.
 - **Parallel sweeps.** Each call to `sweep_harness.py` launches multiple sandbox agents simultaneously via W&B Sweeps on CoreWeave. Exploring N configurations takes the same wall-clock time as exploring 1.
 - **W&B as the research record.** Runs, sweeps, and a living Report are all in W&B. No local result files to manage.
-
-## Notable forks
-
-- [miolini/autoresearch-macos](https://github.com/miolini/autoresearch-macos) (MacOS)
-- [trevin-creator/autoresearch-mlx](https://github.com/trevin-creator/autoresearch-mlx) (MacOS)
-- [jsegov/autoresearch-win-rtx](https://github.com/jsegov/autoresearch-win-rtx) (Windows)
-- [andyluo7/autoresearch](https://github.com/andyluo7/autoresearch) (AMD)
-- [indianspeedster/autoresearch](https://github.com/indianspeedster/autoresearch) (AMD ROCm)
 
 ## License
 
