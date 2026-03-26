@@ -23,7 +23,7 @@ from prepare import (
 # ---------------------------------------------------------------------------
 N_LAYER    = 2
 N_EMBD     = 64
-N_HEAD     = 4
+N_HEAD     = 2
 DROPOUT    = 0.0
 BATCH_SIZE = 16
 LR         = 3e-3
