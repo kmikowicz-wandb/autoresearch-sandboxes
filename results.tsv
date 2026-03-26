@@ -10,3 +10,4 @@ d8bc6a1	3.083606	keep	sweep lr=[1e-3,3e-3,1e-2] x n_head=[2,4] — best: lr=3e-3
 4cb6add	2.596233	keep	8-core CPU + set_num_threads; n_embd=192, batch_size=32 — best so far
 456c680	2.572000	keep	sweep n_embd=[128,192,256,320] — best: n_embd=192 (confirmed sweet spot)
 4bf62f7	2.572509	keep	sweep min_lr_ratio=[0.0,0.1,0.2] x weight_decay=[0.0,0.01] — best: min_lr_ratio=0.1, weight_decay=0.01
+6dade24	2.582626	discard	sweep n_head=[1,2,4,6] x batch_size=[16,32,64] — no improvement; n_head=2, batch_size=32 still best

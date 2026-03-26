@@ -64,7 +64,7 @@ class Block(nn.Module):
             nn.GELU(),
             nn.Linear(ffn_dim, n_embd),
             nn.Dropout(dropout),
-        )
+        ) if ffn_dim > 0 else None
         self.n_head   = n_head
         self.head_dim = n_embd // n_head
 
@@ -78,7 +78,8 @@ class Block(nn.Module):
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         x = x + self.proj(y)
-        x = x + self.mlp(self.ln2(x))
+        if self.mlp is not None:
+            x = x + self.mlp(self.ln2(x))
         return x
 
 

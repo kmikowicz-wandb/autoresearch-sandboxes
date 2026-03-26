@@ -31,9 +31,9 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # n_embd=192 must be divisible by n_head; 192/1=192, /2=96, /3=64, /4=48, /6=32
-        "n_head": {"values": [1, 2, 4, 6]},
-        "batch_size": {"values": [16, 32, 64]},
+        # ffn_mult=0 = attention-only (no MLP), faster steps; test if worth the capacity loss
+        "ffn_mult": {"values": [0, 1]},
+        "n_embd":   {"values": [192, 256, 320]},
     },
 }
 
