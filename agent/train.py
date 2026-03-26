@@ -25,6 +25,7 @@ N_LAYER      = 1
 N_EMBD       = 192
 N_HEAD       = 2
 FFN_MULT     = 1   # FFN hidden dim = FFN_MULT * n_embd
+USE_SWIGLU   = False  # replace GELU FFN with SwiGLU (param-parity: hidden = 2/3 * ffn_mult * n_embd)
 DROPOUT      = 0.0
 BATCH_SIZE   = 32
 LR           = 5e-3
@@ -59,7 +60,8 @@ def get_batch(data: np.ndarray, batch_size: int, seq_len: int):
 # ---------------------------------------------------------------------------
 
 class Block(nn.Module):
-    def __init__(self, n_embd: int, n_head: int, dropout: float, ffn_mult: int = 4):
+    def __init__(self, n_embd: int, n_head: int, dropout: float, ffn_mult: int = 4,
+                 use_swiglu: bool = False):
         super().__init__()
         assert n_embd % n_head == 0
         self.ln1  = nn.LayerNorm(n_embd)
@@ -67,12 +69,24 @@ class Block(nn.Module):
         self.qkv  = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.proj = nn.Linear(n_embd, n_embd, bias=False)
         ffn_dim   = ffn_mult * n_embd
-        self.mlp  = nn.Sequential(
-            nn.Linear(n_embd, ffn_dim),
-            nn.GELU(),
-            nn.Linear(ffn_dim, n_embd),
-            nn.Dropout(dropout),
-        ) if ffn_dim > 0 else None
+        self.use_swiglu = use_swiglu
+        if ffn_dim > 0:
+            if use_swiglu:
+                # SwiGLU: param-parity with standard FFN via hidden = 2/3 * ffn_dim
+                swi_dim = max(1, int(ffn_dim * 2 / 3))
+                self.w1  = nn.Linear(n_embd, swi_dim, bias=False)
+                self.w2  = nn.Linear(n_embd, swi_dim, bias=False)
+                self.w3  = nn.Linear(swi_dim, n_embd, bias=False)
+                self.mlp = None
+            else:
+                self.mlp = nn.Sequential(
+                    nn.Linear(n_embd, ffn_dim),
+                    nn.GELU(),
+                    nn.Linear(ffn_dim, n_embd),
+                    nn.Dropout(dropout),
+                )
+        else:
+            self.mlp = None
         self.n_head   = n_head
         self.head_dim = n_embd // n_head
 
@@ -86,19 +100,22 @@ class Block(nn.Module):
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         x = x + self.proj(y)
-        if self.mlp is not None:
-            x = x + self.mlp(self.ln2(x))
+        h = self.ln2(x)
+        if self.use_swiglu:
+            x = x + self.w3(F.silu(self.w1(h)) * self.w2(h))
+        elif self.mlp is not None:
+            x = x + self.mlp(h)
         return x
 
 
 class CharTransformer(nn.Module):
     def __init__(self, vocab_size: int, n_layer: int, n_embd: int, n_head: int,
-                 seq_len: int, dropout: float, ffn_mult: int = 4):
+                 seq_len: int, dropout: float, ffn_mult: int = 4, use_swiglu: bool = False):
         super().__init__()
         self.tok_emb = nn.Embedding(vocab_size, n_embd)
         self.pos_emb = nn.Embedding(seq_len, n_embd)
         self.drop    = nn.Dropout(dropout)
-        self.blocks  = nn.ModuleList([Block(n_embd, n_head, dropout, ffn_mult) for _ in range(n_layer)])
+        self.blocks  = nn.ModuleList([Block(n_embd, n_head, dropout, ffn_mult, use_swiglu) for _ in range(n_layer)])
         self.ln_f    = nn.LayerNorm(n_embd)
         self.head    = nn.Linear(n_embd, vocab_size, bias=False)
         self._init_weights()
@@ -166,12 +183,13 @@ def main():
     grad_clip       = cfg.get("grad_clip",       GRAD_CLIP)
     num_lr_cycles   = cfg.get("num_lr_cycles",   NUM_LR_CYCLES)
     label_smoothing = cfg.get("label_smoothing", LABEL_SMOOTHING)
+    use_swiglu      = cfg.get("use_swiglu",      USE_SWIGLU)
     use_bf16        = cfg.get("use_bf16",        USE_BF16)
     use_compile     = cfg.get("use_compile",     USE_COMPILE)
 
     train_data, val_data, vocab_size = load_data()
 
-    model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout, ffn_mult).to(device)
+    model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout, ffn_mult, use_swiglu).to(device)
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Device: {device} | params: {num_params:,} | vocab: {vocab_size}")
     if use_compile:

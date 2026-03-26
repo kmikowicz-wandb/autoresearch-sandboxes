@@ -31,9 +31,10 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # Label smoothing + cosine restarts (SGDR) — two untested levers
-        "label_smoothing": {"values": [0.0, 0.05, 0.1]},
-        "num_lr_cycles":   {"values": [1, 2, 3]},
+        # SwiGLU vs GELU FFN (param-parity; SwiGLU has gated activation like LLaMA)
+        # Also re-test ffn_mult with SwiGLU at various sizes
+        "use_swiglu": {"values": [True, False]},
+        "ffn_mult":   {"values": [1, 2, 3]},
     },
 }
 
