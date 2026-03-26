@@ -31,9 +31,9 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # Re-tune LR schedule shape with new lr=5e-3 + bf16 defaults
-        "min_lr_ratio": {"values": [0.0, 0.05, 0.1, 0.2]},
-        "warmup_secs":  {"values": [2.0, 5.0, 10.0]},
+        # Re-sweep n_embd with bf16 + new LR schedule defaults
+        "n_embd":  {"values": [128, 160, 192, 224, 256]},
+        "n_layer": {"values": [1, 2]},
     },
 }
 

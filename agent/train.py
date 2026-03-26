@@ -29,8 +29,8 @@ DROPOUT      = 0.0
 BATCH_SIZE   = 32
 LR           = 5e-3
 WEIGHT_DECAY = 0.01
-MIN_LR_RATIO = 0.1  # cosine decays to MIN_LR_RATIO * LR instead of 0
-WARMUP_SECS  = 5.0  # linear warmup duration in seconds
+MIN_LR_RATIO = 0.0  # cosine decays to 0 (full decay)
+WARMUP_SECS  = 10.0  # linear warmup duration in seconds
 USE_BF16     = True  # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
 # ---------------------------------------------------------------------------
 
