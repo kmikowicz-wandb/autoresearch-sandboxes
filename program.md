@@ -52,7 +52,7 @@ After all agents finish, `sweep_harness.py` writes `last_sweep_result.json`. Use
 
 **Simplicity criterion**: All else being equal, simpler is better. Removing something and getting equal or better results is a win.
 
-**The first sweep**: Always establish the baseline first — run with `parameters: {}` and one agent to confirm the harness works and record the unmodified val_bpb.
+**The first sweep**: Always establish the baseline first — run with `parameters: {}` and `NUM_AGENTS = 1` to confirm the harness works and record the unmodified val_bpb.
 
 ## Output format
 
@@ -205,10 +205,10 @@ LOOP FOREVER:
 
    - Set `name` and `description` in `SWEEP_CONFIG` (required — see above).
    - Edit the `parameters` block.
-   - Set `NUM_AGENTS` to match the number of configurations (or more for `bayes`/`random`).
-   - Use `bayes` for efficient multi-parameter search, `grid` for small exhaustive searches.
+   - Set `NUM_AGENTS` proportional to the sweep space: match the number of configs for small grids (≤8), use 4–8 agents for larger searches. Don't spin up more agents than there are meaningful configs to run.
+   - Use `grid` for exhaustive small searches, `bayes` for large search spaces where you want the controller to guide sampling.
 
-   Scale the fleet by increasing `NUM_AGENTS`. CPU sandboxes (`SandboxResources(cpus=4, memory=8)`) are cheap; use them for most runs. Switch `RESOURCES` to a GPU instance for larger-model candidates if needed. Consult the **sandbox-sweeps** skill for resource config syntax.
+   CPU sandboxes (`SandboxResources(cpus=4, memory=8)`) are cheap. Switch `RESOURCES` to a GPU instance only if the model is too slow on CPU. Consult the **sandbox-sweeps** skill for resource config syntax.
 
    If your hypothesis involves a structural change, edit `agent/train.py` first.
 
@@ -292,4 +292,4 @@ LOOP FOREVER:
 
 **NEVER STOP**: Once the experiment loop has begun, do NOT pause to ask the human if you should continue. The human may be asleep and expects you to continue working *indefinitely* until manually stopped. If you run out of ideas, think harder — query W&B for patterns across all runs, try combining previous near-misses, or make more radical architectural changes.
 
-Each sweep with 4 agents explores 4+ configs in the time a single serial run would explore 1. Over a 2-hour session you can cover 100+ configurations.
+Scale `NUM_AGENTS` to the sweep space — a 4-config grid should run 4 agents, a 2-config grid should run 2. Avoid unnecessary agents, but don't serialize work that can reasonably run in parallel.
