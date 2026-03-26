@@ -1,26 +1,24 @@
 """
 Sweep harness for autoresearch parallel experiments.
 
-Edit SWEEP_CONFIG, CONTAINER_IMAGE, and AGENTS below, then run:
+Edit SWEEP_CONFIG and AGENTS below, then run:
     uv run sweep_harness.py
 
-Each entry in AGENTS defines one sandbox. Give entries different
-SandboxResources to build a heterogeneous fleet. Blocks until all
+Each entry in AGENTS defines one sandbox. Duplicate, remove, or mix
+accelerator types to build a heterogeneous fleet. Blocks until all
 sandboxes finish, then writes last_sweep_result.json.
 """
 import concurrent.futures
 import json
 import os
-import queue
-import threading
 
 import wandb
 from wandb.sandbox import Session
 from wandb.sdk.launch.create_job import create_job
 from wandb.wandb_managed_agent import (
-    WBCodeArtifactJobSource,
     ManagedAgent,
     SandboxResources,
+    WBCodeArtifactJobSource,
 )
 
 ENTITY  = os.environ["WANDB_ENTITY"]
@@ -34,43 +32,26 @@ CONTAINER_IMAGE = "python:3.11-slim"
 SWEEP_CONFIG = {
     "method": "grid",
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
-    "program": "train.py",
-    "parameters": {"DEPTH": {"value": 8}},
+    "parameters": {},
 }
 
-# One SandboxResources entry per sandbox. Duplicate, remove, or mix
-# accelerator types freely — the number of entries controls the fleet size.
 AGENTS = [
-    SandboxResources(accelerators=None, cpus=4, memory=16),
+    SandboxResources(cpus=4, memory=8),
 ]
 # ---------------------------------------------------------------------------
 
 
-_STOP = object()
-
-
-def _printer_thread(log_queue: queue.Queue, label_width: int) -> None:
-    """Serialise log lines from all sandboxes to stdout, docker-compose style."""
-    while True:
-        item = log_queue.get()
-        if item is _STOP:
-            break
-        label, line = item
-        print(f"{label:<{label_width}}  | {line}", flush=True)
-
-
 def main() -> None:
-    # 1. Upload current code as a job artifact via the W&B SDK
+    # 1. Upload current agent/ code as a job artifact
     print("Uploading code artifact...")
-    artifact = create_job(
+    if create_job(
         job_type="code",
         path="./agent",
         entity=ENTITY,
         project=PROJECT,
         name="autoresearch-job",
         entrypoint="python train.py",
-    )
-    if artifact is None:
+    ) is None:
         raise RuntimeError("create_job returned None — artifact upload failed")
     job_artifact_id = f"{ENTITY}/{PROJECT}/autoresearch-job:latest"
     print(f"Job artifact: {job_artifact_id}")
@@ -80,64 +61,30 @@ def main() -> None:
     full_sweep_id = f"{ENTITY}/{PROJECT}/{sweep_id}"
     print(f"Sweep: https://wandb.ai/{full_sweep_id}")
 
-    # 3. Build source and managed agent (shared across all sandboxes)
+    # 3. Build source and managed agent
     source  = WBCodeArtifactJobSource(job_artifact_id)
-    managed = ManagedAgent(
-        sweep_id=sweep_id,
-        entity=ENTITY,
-        project=PROJECT,
-        source=source,
-    )
-    image = managed.resolve_container_image(default=CONTAINER_IMAGE)
+    managed = ManagedAgent(sweep_id=sweep_id, entity=ENTITY, project=PROJECT, source=source)
+    image   = managed.resolve_container_image(default=CONTAINER_IMAGE)
 
-    # 4. Start log-streaming printer thread
-    label_width = len(f"agent-{len(AGENTS) - 1}")
-    log_queue: queue.Queue = queue.Queue()
-    printer = threading.Thread(
-        target=_printer_thread,
-        args=(log_queue, label_width),
-        daemon=True,
-    )
-    printer.start()
-
-    # 5. Create and start each sandbox line-by-line, collect RunHandles
+    # 4. Launch sandboxes, block until all finish
     handles = []
     with Session() as session:
-        for i, resources in enumerate(AGENTS):
+        for resources in AGENTS:
             sandbox = session.sandbox(
                 container_image=image,
                 resources=resources.to_cwsandbox_dict(),
             )
             managed.consume_sandbox(sandbox)
             sandbox.start().result()
-            managed.log_device_resources(sandbox, log_queue, label=f"agent-{i}")
+            handles.append(source.start(sandbox, managed._sweep_path))
 
-            handle = source.start(sandbox, managed._sweep_path)
-            handles.append(handle)
-
-            if handle.log_lines is not None:
-                lbl = f"agent-{i}"
-                threading.Thread(
-                    target=lambda lines=handle.log_lines, l=lbl: [
-                        log_queue.put((l, line)) for line in lines
-                    ],
-                    daemon=True,
-                ).start()
-
-        # 6. Block until every agent finishes
         concurrent.futures.wait([h.future for h in handles])
 
-    for handle in handles:
-        handle.close()
+    for h in handles:
+        h.close()
 
-    log_queue.put(_STOP)
-    printer.join()
-
-    # 7. Query best result from the W&B API
-    api   = wandb.Api()
-    sweep = api.sweep(full_sweep_id)
-    best  = sweep.best_run()
-
+    # 5. Report best result
+    best = wandb.Api().sweep(full_sweep_id).best_run()
     val_bpb      = best.summary_metrics.get("final/val_bpb", float("inf"))
     peak_vram_mb = best.summary_metrics.get("final/peak_vram_mb", 0.0)
 
