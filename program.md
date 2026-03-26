@@ -20,10 +20,9 @@ To set up a new experiment, work with the user to:
    - `agent/train.py` — the model file you modify. Architecture, optimizer, training loop.
    - `sweep_harness.py` — the harness file you modify to configure each sweep.
 5. **Verify data artifact exists**: Check that `autoresearch-data:latest` exists in the agreed W&B project. If not, tell the human to run `uv run prepare.py --upload` from the repo root.
-6. **Initialize results.tsv**: Create `results.tsv` with just the header row. The baseline will be recorded after the first run.
-7. **Confirm and go**: Confirm setup looks good.
+6. **Confirm and go**: Confirm setup looks good.
 
-Once you get confirmation, kick off the experimentation.
+Once you get confirmation, kick off the experimentation. The W&B dashboard (see below) is created after the baseline sweep completes.
 
 ## The task
 
@@ -33,7 +32,7 @@ The dataset is tiny and CPU-capable, but GPU will be faster. Sandboxes run on Co
 
 ## Experimentation
 
-Each experiment is a **W&B sandbox sweep**: multiple hyperparameter configurations run in parallel, each for the fixed 2-minute time budget. You control what to explore by editing `SWEEP_CONFIG` and the `AGENTS` list in `sweep_harness.py`, then running:
+Each experiment is a **W&B sandbox sweep**: multiple hyperparameter configurations run in parallel, each for the fixed 2-minute time budget. You control what to explore by editing `SWEEP_CONFIG`, `NUM_AGENTS`, and `RESOURCES` in `sweep_harness.py`, then running:
 
 ```bash
 uv run sweep_harness.py > sweep.log 2>&1
@@ -71,28 +70,107 @@ n_embd:           128
 
 After `sweep_harness.py` completes, the best result is in `last_sweep_result.json`.
 
-## Logging results
+## W&B dashboard
 
-When a sweep is done, log the best result to `results.tsv` (tab-separated, NOT comma-separated):
+The W&B project is the primary record of research progress. Keep it organized and readable.
 
+### Naming sweeps
+
+Before every sweep, set `name` and `description` in `SWEEP_CONFIG` so the sweep is immediately identifiable in the W&B UI:
+
+```python
+SWEEP_CONFIG = {
+    "name": "depth-2to8",
+    "description": "Does more depth help? Baseline is n_layer=4. Testing 2, 4, 6, 8.",
+    "method": "grid",
+    "metric": {"name": "final/val_bpb", "goal": "minimize"},
+    "parameters": {
+        "n_layer": {"values": [2, 4, 6, 8]},
+    },
+}
 ```
-commit	val_bpb	status	description
+
+Use names that describe what is being varied (e.g. `lr-schedule`, `swiglu-vs-gelu`, `width-64to256`). The description should state the hypothesis being tested.
+
+### Naming code artifact versions
+
+Each `sweep_harness.py` run uploads a new version of the `autoresearch-job` artifact. Make the artifact name reflect what changed in that version by editing the `name` argument in `sweep_harness.py` before running:
+
+```python
+if create_job(
+    job_type="code",
+    path="./agent",
+    entity=ENTITY,
+    project=PROJECT,
+    name="autoresearch-job-swiglu",        # ← describe the change
+    entrypoint="python train.py",
+) is None:
 ```
 
-1. git commit hash (short, 7 chars)
-2. val_bpb achieved (e.g. 1.512345) — use 0.000000 for crashes
-3. status: `keep`, `discard`, or `crash`
-4. short text description of what this sweep explored
+You can reuse a name across sweeps that share the same `agent/train.py` — W&B will version it automatically.
 
-Example:
+### Project workspace dashboard
 
+After the baseline sweep, create a W&B Report that acts as the living research journal. Use the **wandb** skill for the full report API. A starter template:
+
+```python
+import os, wandb
+from wandb.apis import reports as wr
+
+entity  = os.environ["WANDB_ENTITY"]
+project = os.environ.get("WANDB_PROJECT", "autoresearch")
+
+runset = wr.Runset(entity=entity, project=project, name="All runs")
+
+report = wr.Report(
+    entity=entity,
+    project=project,
+    title="Autoresearch: TinyShakespeare",
+    description="Character-level Transformer optimization log.",
+    width="fixed",
+    blocks=[
+        wr.H1("Autoresearch: TinyShakespeare"),
+        wr.P("Minimizing val_bpb on a 2-minute CPU/GPU training budget."),
+        wr.H2("Progress"),
+        wr.PanelGrid(
+            runsets=[runset],
+            panels=[
+                wr.LinePlot(title="Val BPB over training steps",
+                            x="_step", y=["final/val_bpb"]),
+                wr.LinePlot(title="Train loss",
+                            x="_step", y=["train/smooth_loss"]),
+                wr.ScatterPlot(title="val_bpb by run",
+                               x="final/num_params_M", y="final/val_bpb"),
+            ],
+        ),
+    ],
+)
+report.save()
+print(f"Report: {report.url}")
 ```
-commit	val_bpb	status	description
-a1b2c3d	1.512345	keep	baseline
-b2c3d4e	1.490000	keep	sweep n_layer=[2,4,6,8] — best was 6
-c3d4e5f	1.530000	discard	wider FFN (4x→8x) — no improvement
-d4e5f6g	0.000000	crash	n_embd=512 OOM on CPU sandbox
+
+Save the report URL (printed by `report.url`) to a local file `report_url.txt`.
+
+**After each sweep**, update the report to add a new narrative section documenting what was tried, what the best result was, and what it means:
+
+```python
+import wandb
+from wandb.apis import reports as wr
+
+with open("report_url.txt") as f:
+    url = f.read().strip()
+
+report = wr.Report.from_url(url)
+
+# Prepend a new findings block after the H2 header
+report.blocks.insert(3, wr.P(
+    f"[Sweep: depth-2to8] Best val_bpb=1.487 at n_layer=6. "
+    f"Shallower (2) underfit; deeper (8) gave no gain. Keeping n_layer=6."
+))
+report.save()
 ```
+
+The panels auto-refresh from live W&B data — you only need to update the narrative text.
 
 ## The experiment loop
 
@@ -104,7 +182,6 @@ LOOP FOREVER:
 
    ```bash
    git log --oneline -10
-   cat results.tsv
    cat last_sweep_result.json   # if it exists
    ```
 
@@ -114,14 +191,22 @@ LOOP FOREVER:
    import wandb, os, pandas as pd
    api  = wandb.Api()
    path = f"{os.environ['WANDB_ENTITY']}/{os.environ.get('WANDB_PROJECT', 'autoresearch')}"
-   runs = api.runs(path, order="-created_at")
-   for r in runs[:20]:
-       print(r.id, r.summary_metrics.get("final/val_bpb", "?"), dict(r.config))
+   runs = api.runs(path, order="+summary_metrics.final/val_bpb",
+                   filters={"state": "finished"})
+   rows = [{"id": r.id, "name": r.name,
+            "val_bpb": r.summary_metrics.get("final/val_bpb", float("inf")),
+            **dict(r.config)} for r in runs[:30]]
+   print(pd.DataFrame(rows).to_string(index=False))
    ```
 
 2. **Form a hypothesis and configure the sweep**
 
-   Decide what to vary. Edit `SWEEP_CONFIG` and `AGENTS` in `sweep_harness.py`. Use `bayes` for efficient multi-parameter search, `grid` for small exhaustive searches.
+   Decide what to vary and why. Then:
+
+   - Set `name` and `description` in `SWEEP_CONFIG` (required — see above).
+   - Edit the `parameters` block.
+   - Set `NUM_AGENTS` to match the number of configurations (or more for `bayes`/`random`).
+   - Use `bayes` for efficient multi-parameter search, `grid` for small exhaustive searches.
 
    Scale the fleet by increasing `NUM_AGENTS`. CPU sandboxes (`SandboxResources(cpus=4, memory=8)`) are cheap; use them for most runs. Switch `RESOURCES` to a GPU instance for larger-model candidates if needed. Consult the **sandbox-sweeps** skill for resource config syntax.
 
@@ -167,8 +252,7 @@ LOOP FOREVER:
    rows  = [{"id": r.id,
              "val_bpb": r.summary_metrics.get("final/val_bpb", float("inf")),
              **dict(r.config)} for r in sweep.runs]
-   df = pd.DataFrame(rows).sort_values("val_bpb")
-   print(df.to_string(index=False))
+   print(pd.DataFrame(rows).sort_values("val_bpb").to_string(index=False))
    ```
 
 6. **Decide: keep or discard**
@@ -198,9 +282,9 @@ LOOP FOREVER:
    git checkout agent/train.py
    ```
 
-9. **Record in results.tsv**
+9. **Update the W&B Report**
 
-   Log the best result (keep or discard). Do NOT commit `results.tsv` — leave it untracked.
+   Add a narrative paragraph to the report summarising what was tried, the outcome, and the next hypothesis. This is the research journal. Keep entries concise: sweep name, best val_bpb, one-sentence interpretation, keep/discard decision.
 
 10. **Repeat**
 
