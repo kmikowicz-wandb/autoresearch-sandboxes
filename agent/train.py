@@ -21,8 +21,8 @@ from prepare import (
 # ---------------------------------------------------------------------------
 # Hyperparameters (sweep can override any of these via wandb.config)
 # ---------------------------------------------------------------------------
-N_LAYER    = 2
-N_EMBD     = 64
+N_LAYER    = 1
+N_EMBD     = 96
 N_HEAD     = 2
 FFN_MULT   = 1   # FFN hidden dim = FFN_MULT * n_embd
 DROPOUT    = 0.0
