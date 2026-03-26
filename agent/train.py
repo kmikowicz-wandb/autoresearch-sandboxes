@@ -21,13 +21,15 @@ from prepare import (
 # ---------------------------------------------------------------------------
 # Hyperparameters (sweep can override any of these via wandb.config)
 # ---------------------------------------------------------------------------
-N_LAYER    = 1
-N_EMBD     = 192
-N_HEAD     = 2
-FFN_MULT   = 1   # FFN hidden dim = FFN_MULT * n_embd
-DROPOUT    = 0.0
-BATCH_SIZE = 32
-LR         = 3e-3
+N_LAYER      = 1
+N_EMBD       = 192
+N_HEAD       = 2
+FFN_MULT     = 1   # FFN hidden dim = FFN_MULT * n_embd
+DROPOUT      = 0.0
+BATCH_SIZE   = 32
+LR           = 3e-3
+WEIGHT_DECAY = 0.0  # no regularization needed for short runs
+MIN_LR_RATIO = 0.1  # cosine decays to MIN_LR_RATIO * LR instead of 0
 # ---------------------------------------------------------------------------
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -116,11 +118,12 @@ class CharTransformer(nn.Module):
 # Learning rate schedule: linear warmup then cosine decay over TIME_BUDGET
 # ---------------------------------------------------------------------------
 
-def get_lr(elapsed: float, lr: float, warmup_secs: float = 5.0) -> float:
+def get_lr(elapsed: float, lr: float, min_lr_ratio: float, warmup_secs: float = 5.0) -> float:
     if elapsed < warmup_secs:
         return lr * elapsed / warmup_secs
     progress = min((elapsed - warmup_secs) / (TIME_BUDGET - warmup_secs), 1.0)
-    return lr * 0.5 * (1.0 + math.cos(math.pi * progress))
+    cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+    return lr * (min_lr_ratio + (1.0 - min_lr_ratio) * cosine_factor)
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +143,12 @@ def main():
     n_layer    = cfg.get("n_layer",    N_LAYER)
     n_embd     = cfg.get("n_embd",     N_EMBD)
     n_head     = cfg.get("n_head",     N_HEAD)
-    ffn_mult   = cfg.get("ffn_mult",   FFN_MULT)
-    dropout    = cfg.get("dropout",    DROPOUT)
-    batch_size = cfg.get("batch_size", BATCH_SIZE)
-    lr         = cfg.get("lr",         LR)
+    ffn_mult     = cfg.get("ffn_mult",     FFN_MULT)
+    dropout      = cfg.get("dropout",      DROPOUT)
+    batch_size   = cfg.get("batch_size",   BATCH_SIZE)
+    lr           = cfg.get("lr",           LR)
+    weight_decay = cfg.get("weight_decay", WEIGHT_DECAY)
+    min_lr_ratio = cfg.get("min_lr_ratio", MIN_LR_RATIO)
 
     train_data, val_data, vocab_size = load_data()
 
@@ -151,7 +156,7 @@ def main():
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Device: {device} | params: {num_params:,} | vocab: {vocab_size}")
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     t_start     = time.time()
     step        = 0
@@ -163,7 +168,7 @@ def main():
             break
 
         # Update learning rate
-        current_lr = get_lr(elapsed, lr)
+        current_lr = get_lr(elapsed, lr, min_lr_ratio)
         for pg in optimizer.param_groups:
             pg["lr"] = current_lr
 
