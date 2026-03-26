@@ -38,7 +38,7 @@ Each experiment is a **W&B sandbox sweep**: multiple hyperparameter configuratio
 uv run sweep_harness.py > sweep.log 2>&1
 ```
 
-After all agents finish, `sweep_harness.py` writes `last_sweep_result.json`. Use the W&B API to query richer detail.
+After all agents finish, results are in W&B. Use `uv run query_sweep.py` to pull the latest sweep results.
 
 **What you CAN do:**
 - Modify `agent/train.py` — this is the only model file you edit. Everything is fair game: architecture, optimizer, hyperparameters, learning rate schedule, etc.
@@ -68,7 +68,7 @@ n_layer:          4
 n_embd:           128
 ```
 
-After `sweep_harness.py` completes, the best result is in `last_sweep_result.json`.
+After `sweep_harness.py` completes, results are queryable via `uv run query_sweep.py`.
 
 ## W&B dashboard
 
@@ -182,22 +182,21 @@ LOOP FOREVER:
 
    ```bash
    git log --oneline -10
-   cat last_sweep_result.json   # if it exists
    ```
 
-   For richer analysis, query the W&B API (use the **wandb** skill for patterns):
+   To see all runs in the last sweep sorted by val_bpb:
 
-   ```python
-   import wandb, os, pandas as pd
-   api  = wandb.Api()
-   path = f"{os.environ['WANDB_ENTITY']}/{os.environ.get('WANDB_PROJECT', 'autoresearch')}"
-   runs = api.runs(path, order="+summary_metrics.final/val_bpb",
-                   filters={"state": "finished"})
-   rows = [{"id": r.id, "name": r.name,
-            "val_bpb": r.summary_metrics.get("final/val_bpb", float("inf")),
-            **dict(r.config)} for r in runs[:30]]
-   print(pd.DataFrame(rows).to_string(index=False))
+   ```bash
+   uv run query_sweep.py
    ```
+
+   To query a specific sweep by ID:
+
+   ```bash
+   uv run query_sweep.py entity/project/sweep_id
+   ```
+
+   With no argument, queries all finished runs in the project sorted by val_bpb — use this to find the global best. Pass a sweep ID to get the best run from that specific sweep via `sweep.best_run()`.
 
 2. **Form a hypothesis and configure the sweep**
 
@@ -238,21 +237,7 @@ LOOP FOREVER:
 5. **Read results**
 
    ```bash
-   cat last_sweep_result.json
-   ```
-
-   For the full picture across all runs in the sweep:
-
-   ```python
-   import wandb, json, pandas as pd
-   with open("last_sweep_result.json") as f:
-       result = json.load(f)
-   api   = wandb.Api()
-   sweep = api.sweep(result["sweep_id"])
-   rows  = [{"id": r.id,
-             "val_bpb": r.summary_metrics.get("final/val_bpb", float("inf")),
-             **dict(r.config)} for r in sweep.runs]
-   print(pd.DataFrame(rows).sort_values("val_bpb").to_string(index=False))
+   uv run query_sweep.py
    ```
 
 6. **Decide: keep or discard**
@@ -262,7 +247,7 @@ LOOP FOREVER:
 
 7. **If keeping: bake the best config into agent/train.py defaults**
 
-   Take the winning config from `last_sweep_result.json` and update the corresponding constants at the top of `agent/train.py`. Then commit:
+   Take the winning config from `uv run query_sweep.py` output and update the corresponding constants at the top of `agent/train.py`. Then commit:
 
    ```bash
    git add agent/train.py

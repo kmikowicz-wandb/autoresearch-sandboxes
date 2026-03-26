@@ -4,9 +4,9 @@ Sweep harness for autoresearch parallel experiments.
 Edit SWEEP_CONFIG, NUM_AGENTS, and RESOURCES below, then run:
     uv run sweep_harness.py
 
-Blocks until all agents finish, then writes last_sweep_result.json.
+Blocks until all agents finish. Results are queryable via the W&B API
+(use query_sweep.py) — the sweep ID is printed to stdout on start.
 """
-import json
 import os
 
 import wandb
@@ -28,6 +28,7 @@ CONTAINER_IMAGE = "python:3.11-slim"
 # ---------------------------------------------------------------------------
 SWEEP_CONFIG = {
     "method": "grid",
+    "program": "train.py",
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "parameters": {
         "n_layer": {"values": [4]},
@@ -79,18 +80,8 @@ def main() -> None:
     print("\n=== SWEEP COMPLETE ===")
     print(f"Best run:  {best.id}")
     print(f"val_bpb:   {val_bpb:.6f}")
-    print(f"Config:    {json.dumps(dict(best.config), indent=2)}")
     print(f"Sweep URL: https://wandb.ai/{full_sweep_id}")
-
-    result = {
-        "sweep_id":    full_sweep_id,
-        "best_run_id": best.id,
-        "val_bpb":     val_bpb,
-        "config":      dict(best.config),
-    }
-    with open("last_sweep_result.json", "w") as f:
-        json.dump(result, f, indent=2)
-    print("Result written to last_sweep_result.json")
+    print("Run `uv run query_sweep.py` to see full results.")
 
 
 if __name__ == "__main__":
