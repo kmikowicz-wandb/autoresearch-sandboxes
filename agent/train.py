@@ -31,7 +31,9 @@ LR           = 5e-3
 WEIGHT_DECAY = 0.01
 MIN_LR_RATIO = 0.0  # cosine decays to 0 (full decay)
 WARMUP_SECS  = 10.0  # linear warmup duration in seconds
-USE_BF16     = True  # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
+ADAM_BETA2   = 0.999  # AdamW beta2 — shorter memory (0.95-0.99) adapts faster
+USE_BF16     = True   # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
+USE_COMPILE  = False  # torch.compile — fuses ops, may speed up CPU forward pass
 # ---------------------------------------------------------------------------
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -153,15 +155,20 @@ def main():
     weight_decay = cfg.get("weight_decay", WEIGHT_DECAY)
     min_lr_ratio = cfg.get("min_lr_ratio", MIN_LR_RATIO)
     warmup_secs  = cfg.get("warmup_secs",  WARMUP_SECS)
+    adam_beta2   = cfg.get("adam_beta2",   ADAM_BETA2)
     use_bf16     = cfg.get("use_bf16",     USE_BF16)
+    use_compile  = cfg.get("use_compile",  USE_COMPILE)
 
     train_data, val_data, vocab_size = load_data()
 
     model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout, ffn_mult).to(device)
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Device: {device} | params: {num_params:,} | vocab: {vocab_size}")
+    if use_compile:
+        model = torch.compile(model)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay,
+                                  betas=(0.9, adam_beta2))
 
     t_start     = time.time()
     step        = 0

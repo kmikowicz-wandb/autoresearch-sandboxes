@@ -31,9 +31,10 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # Re-sweep n_embd with bf16 + new LR schedule defaults
-        "n_embd":  {"values": [128, 160, 192, 224, 256]},
-        "n_layer": {"values": [1, 2]},
+        # Test Adam beta2 (shorter memory = faster adaptation for short runs)
+        # + torch.compile for potential free speedup via op fusion
+        "adam_beta2":  {"values": [0.9, 0.95, 0.99, 0.999]},
+        "use_compile": {"values": [True, False]},
     },
 }
 
