@@ -29,13 +29,16 @@ CONTAINER_IMAGE = "python:3.11-slim"
 SWEEP_CONFIG = {
     "method": "grid",
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
+    "program": "train.py",
     "parameters": {
-        "n_layer": {"values": [4]},
+        # n_embd=192 must be divisible by n_head; 192/1=192, /2=96, /3=64, /4=48, /6=32
+        "n_head": {"values": [1, 2, 4, 6]},
+        "batch_size": {"values": [16, 32, 64]},
     },
 }
 
-NUM_AGENTS = 1
-RESOURCES  = SandboxResources(cpus=4, memory=8)
+NUM_AGENTS = 4
+RESOURCES  = SandboxResources(cpus=8, memory=16)
 # ---------------------------------------------------------------------------
 
 

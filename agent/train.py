@@ -28,7 +28,7 @@ FFN_MULT     = 1   # FFN hidden dim = FFN_MULT * n_embd
 DROPOUT      = 0.0
 BATCH_SIZE   = 32
 LR           = 3e-3
-WEIGHT_DECAY = 0.0  # no regularization needed for short runs
+WEIGHT_DECAY = 0.01
 MIN_LR_RATIO = 0.1  # cosine decays to MIN_LR_RATIO * LR instead of 0
 # ---------------------------------------------------------------------------
 

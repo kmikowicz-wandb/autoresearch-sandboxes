@@ -1,0 +1,12 @@
+commit	val_bpb	status	description
+ef2a1d5	4.645885	keep	baseline — n_layer=4, n_embd=128, lr=3e-3, 27 steps on CPU
+e859b5e	3.166717	keep	sweep n_embd=[32,64] x n_layer=[2,4] x batch_size=[8,16] — best: n_embd=64, n_layer=2, batch_size=16
+d8bc6a1	3.083606	keep	sweep lr=[1e-3,3e-3,1e-2] x n_head=[2,4] — best: lr=3e-3, n_head=2
+56827ed	3.103352	discard	weight tying — neutral vs 3.084, n_layer=2 still best
+45eba3f	3.009779	keep	sweep seq_len=[64,128,256] x ffn_mult=[1,2,4] — best: ffn_mult=1, seq_len=256
+1b3ffa0	2.696438	keep	sweep n_embd=[48,64,96] x n_layer=[1,2,3] — best: n_embd=96, n_layer=1 (single-layer is faster!)
+784584f	2.661332	keep	sweep n_embd=[96,128,192,256] — best: n_embd=128 (sweet spot)
+3d1833e	0.000000	discard	GPU attempt (H100) — no towers available
+4cb6add	2.596233	keep	8-core CPU + set_num_threads; n_embd=192, batch_size=32 — best so far
+456c680	2.572000	keep	sweep n_embd=[128,192,256,320] — best: n_embd=192 (confirmed sweet spot)
+4bf62f7	2.572509	keep	sweep min_lr_ratio=[0.0,0.1,0.2] x weight_decay=[0.0,0.01] — best: min_lr_ratio=0.1, weight_decay=0.01
