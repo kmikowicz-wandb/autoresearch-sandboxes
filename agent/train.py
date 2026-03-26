@@ -21,12 +21,13 @@ from prepare import (
 # ---------------------------------------------------------------------------
 # Hyperparameters (sweep can override any of these via wandb.config)
 # ---------------------------------------------------------------------------
-N_LAYER    = 4
-N_EMBD     = 128
-N_HEAD     = 4
-DROPOUT    = 0.0
-BATCH_SIZE = 32
-LR         = 3e-3
+N_LAYER      = 1      # best from mar25a-e sweeps
+N_EMBD       = 256   # best from mar25a-e sweeps
+N_HEAD       = 4
+DROPOUT      = 0.0
+BATCH_SIZE   = 16
+LR           = 3e-3
+WEIGHT_TYING = False  # tie tok_emb and head weights
 # ---------------------------------------------------------------------------
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -131,16 +132,19 @@ def main():
     wandb.init()
     cfg = wandb.config
 
-    n_layer    = cfg.get("n_layer",    N_LAYER)
-    n_embd     = cfg.get("n_embd",     N_EMBD)
-    n_head     = cfg.get("n_head",     N_HEAD)
-    dropout    = cfg.get("dropout",    DROPOUT)
-    batch_size = cfg.get("batch_size", BATCH_SIZE)
-    lr         = cfg.get("lr",         LR)
+    n_layer      = cfg.get("n_layer",      N_LAYER)
+    n_embd       = cfg.get("n_embd",       N_EMBD)
+    n_head       = cfg.get("n_head",       N_HEAD)
+    dropout      = cfg.get("dropout",      DROPOUT)
+    batch_size   = cfg.get("batch_size",   BATCH_SIZE)
+    lr           = cfg.get("lr",           LR)
+    weight_tying = cfg.get("weight_tying", WEIGHT_TYING)
 
     train_data, val_data, vocab_size = load_data()
 
     model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout).to(device)
+    if weight_tying:
+        model.head.weight = model.tok_emb.weight
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Device: {device} | params: {num_params:,} | vocab: {vocab_size}")
 
