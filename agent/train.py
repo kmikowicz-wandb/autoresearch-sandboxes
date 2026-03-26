@@ -24,8 +24,7 @@ from prepare import (
 N_LAYER    = 2
 N_EMBD     = 64
 N_HEAD     = 2
-FFN_MULT   = 4   # FFN hidden dim = FFN_MULT * n_embd
-SEQ_LEN    = 128 # training sequence length (eval always uses MAX_SEQ_LEN=256)
+FFN_MULT   = 1   # FFN hidden dim = FFN_MULT * n_embd
 DROPOUT    = 0.0
 BATCH_SIZE = 16
 LR         = 3e-3
@@ -138,7 +137,6 @@ def main():
     n_embd     = cfg.get("n_embd",     N_EMBD)
     n_head     = cfg.get("n_head",     N_HEAD)
     ffn_mult   = cfg.get("ffn_mult",   FFN_MULT)
-    seq_len    = cfg.get("seq_len",    SEQ_LEN)
     dropout    = cfg.get("dropout",    DROPOUT)
     batch_size = cfg.get("batch_size", BATCH_SIZE)
     lr         = cfg.get("lr",         LR)
@@ -165,7 +163,7 @@ def main():
         for pg in optimizer.param_groups:
             pg["lr"] = current_lr
 
-        x, y = get_batch(train_data, batch_size, seq_len)
+        x, y = get_batch(train_data, batch_size, MAX_SEQ_LEN)
         loss = model(x, y)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
