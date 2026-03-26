@@ -31,9 +31,8 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # Test bfloat16 autocast (AMD EPYC Zen5 supports native BF16 — could 2x throughput)
-        "use_bf16": {"values": [True, False]},
-        "lr":       {"values": [2e-3, 3e-3, 5e-3]},
+        # Fine-tune LR now that bf16 is the default (more steps = higher LR might be better)
+        "lr": {"values": [4e-3, 5e-3, 6e-3, 8e-3, 1e-2]},
     },
 }
 

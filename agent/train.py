@@ -27,7 +27,7 @@ N_HEAD       = 2
 FFN_MULT     = 1   # FFN hidden dim = FFN_MULT * n_embd
 DROPOUT      = 0.0
 BATCH_SIZE   = 32
-LR           = 3e-3
+LR           = 5e-3
 WEIGHT_DECAY = 0.01
 MIN_LR_RATIO = 0.1  # cosine decays to MIN_LR_RATIO * LR instead of 0
 USE_BF16     = True  # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
