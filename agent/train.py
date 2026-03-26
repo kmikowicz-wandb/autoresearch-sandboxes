@@ -21,12 +21,25 @@ from prepare import (
 # ---------------------------------------------------------------------------
 # Hyperparameters (sweep can override any of these via wandb.config)
 # ---------------------------------------------------------------------------
-N_LAYER    = 4
-N_EMBD     = 128
-N_HEAD     = 4
-DROPOUT    = 0.0
-BATCH_SIZE = 32
-LR         = 3e-3
+N_LAYER      = 1
+N_EMBD       = 192
+N_HEAD       = 2
+FFN_MULT     = 4   # FFN hidden dim = FFN_MULT * n_embd
+USE_SWIGLU   = True   # replace GELU FFN with SwiGLU (param-parity: hidden = 2/3 * ffn_mult * n_embd)
+TRAIN_SEQ_LEN = MAX_SEQ_LEN  # training context window (can be < MAX_SEQ_LEN to get more steps)
+DROPOUT      = 0.0
+BATCH_SIZE   = 32
+LR           = 5e-3
+WEIGHT_DECAY = 0.01
+MIN_LR_RATIO    = 0.0  # cosine decays to 0 (full decay)
+WARMUP_SECS     = 10.0  # linear warmup duration in seconds
+NUM_LR_CYCLES   = 1    # cosine LR cycles (SGDR); >1 = warm restarts
+LABEL_SMOOTHING = 0.0  # cross-entropy label smoothing
+ADAM_BETA2   = 0.99  # AdamW beta2 — shorter memory than default 0.999; adapts faster
+ADAM_EPS     = 1e-8  # AdamW eps — bf16 gradients may need larger eps for stability
+GRAD_CLIP    = 0.5   # gradient clip norm
+USE_BF16     = True   # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
+USE_COMPILE  = False  # torch.compile — fuses ops, may speed up CPU forward pass
 # ---------------------------------------------------------------------------
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -48,19 +61,33 @@ def get_batch(data: np.ndarray, batch_size: int, seq_len: int):
 # ---------------------------------------------------------------------------
 
 class Block(nn.Module):
-    def __init__(self, n_embd: int, n_head: int, dropout: float):
+    def __init__(self, n_embd: int, n_head: int, dropout: float, ffn_mult: int = 4,
+                 use_swiglu: bool = False):
         super().__init__()
         assert n_embd % n_head == 0
         self.ln1  = nn.LayerNorm(n_embd)
         self.ln2  = nn.LayerNorm(n_embd)
         self.qkv  = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.proj = nn.Linear(n_embd, n_embd, bias=False)
-        self.mlp  = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
-            nn.GELU(),
-            nn.Linear(4 * n_embd, n_embd),
-            nn.Dropout(dropout),
-        )
+        ffn_dim   = ffn_mult * n_embd
+        self.use_swiglu = use_swiglu
+        if ffn_dim > 0:
+            if use_swiglu:
+                # SwiGLU: param-parity with standard FFN via hidden = 2/3 * ffn_dim
+                swi_dim = max(1, int(ffn_dim * 2 / 3))
+                self.w1  = nn.Linear(n_embd, swi_dim, bias=False)
+                self.w2  = nn.Linear(n_embd, swi_dim, bias=False)
+                self.w3  = nn.Linear(swi_dim, n_embd, bias=False)
+                self.mlp = None
+            else:
+                self.mlp = nn.Sequential(
+                    nn.Linear(n_embd, ffn_dim),
+                    nn.GELU(),
+                    nn.Linear(ffn_dim, n_embd),
+                    nn.Dropout(dropout),
+                )
+        else:
+            self.mlp = None
         self.n_head   = n_head
         self.head_dim = n_embd // n_head
 
@@ -74,18 +101,22 @@ class Block(nn.Module):
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         x = x + self.proj(y)
-        x = x + self.mlp(self.ln2(x))
+        h = self.ln2(x)
+        if self.use_swiglu:
+            x = x + self.w3(F.silu(self.w1(h)) * self.w2(h))
+        elif self.mlp is not None:
+            x = x + self.mlp(h)
         return x
 
 
 class CharTransformer(nn.Module):
     def __init__(self, vocab_size: int, n_layer: int, n_embd: int, n_head: int,
-                 seq_len: int, dropout: float):
+                 seq_len: int, dropout: float, ffn_mult: int = 4, use_swiglu: bool = False):
         super().__init__()
         self.tok_emb = nn.Embedding(vocab_size, n_embd)
         self.pos_emb = nn.Embedding(seq_len, n_embd)
         self.drop    = nn.Dropout(dropout)
-        self.blocks  = nn.ModuleList([Block(n_embd, n_head, dropout) for _ in range(n_layer)])
+        self.blocks  = nn.ModuleList([Block(n_embd, n_head, dropout, ffn_mult, use_swiglu) for _ in range(n_layer)])
         self.ln_f    = nn.LayerNorm(n_embd)
         self.head    = nn.Linear(n_embd, vocab_size, bias=False)
         self._init_weights()
@@ -114,11 +145,14 @@ class CharTransformer(nn.Module):
 # Learning rate schedule: linear warmup then cosine decay over TIME_BUDGET
 # ---------------------------------------------------------------------------
 
-def get_lr(elapsed: float, lr: float, warmup_secs: float = 5.0) -> float:
+def get_lr(elapsed: float, lr: float, min_lr_ratio: float, warmup_secs: float = 5.0,
+           num_cycles: int = 1) -> float:
     if elapsed < warmup_secs:
         return lr * elapsed / warmup_secs
     progress = min((elapsed - warmup_secs) / (TIME_BUDGET - warmup_secs), 1.0)
-    return lr * 0.5 * (1.0 + math.cos(math.pi * progress))
+    cycle_progress = (progress * num_cycles) % 1.0
+    cosine_factor = 0.5 * (1.0 + math.cos(math.pi * cycle_progress))
+    return lr * (min_lr_ratio + (1.0 - min_lr_ratio) * cosine_factor)
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +160,10 @@ def get_lr(elapsed: float, lr: float, warmup_secs: float = 5.0) -> float:
 # ---------------------------------------------------------------------------
 
 def main():
+    import os
+    num_threads = int(os.environ.get("OMP_NUM_THREADS", os.cpu_count() or 4))
+    torch.set_num_threads(num_threads)
+
     ensure_cache()
 
     wandb.init()
@@ -134,17 +172,33 @@ def main():
     n_layer    = cfg.get("n_layer",    N_LAYER)
     n_embd     = cfg.get("n_embd",     N_EMBD)
     n_head     = cfg.get("n_head",     N_HEAD)
-    dropout    = cfg.get("dropout",    DROPOUT)
-    batch_size = cfg.get("batch_size", BATCH_SIZE)
-    lr         = cfg.get("lr",         LR)
+    ffn_mult     = cfg.get("ffn_mult",     FFN_MULT)
+    dropout      = cfg.get("dropout",      DROPOUT)
+    batch_size   = cfg.get("batch_size",   BATCH_SIZE)
+    lr           = cfg.get("lr",           LR)
+    weight_decay = cfg.get("weight_decay", WEIGHT_DECAY)
+    min_lr_ratio = cfg.get("min_lr_ratio", MIN_LR_RATIO)
+    warmup_secs  = cfg.get("warmup_secs",  WARMUP_SECS)
+    adam_beta2      = cfg.get("adam_beta2",      ADAM_BETA2)
+    adam_eps        = cfg.get("adam_eps",        ADAM_EPS)
+    grad_clip       = cfg.get("grad_clip",       GRAD_CLIP)
+    num_lr_cycles   = cfg.get("num_lr_cycles",   NUM_LR_CYCLES)
+    label_smoothing = cfg.get("label_smoothing", LABEL_SMOOTHING)
+    use_swiglu      = cfg.get("use_swiglu",      USE_SWIGLU)
+    use_bf16        = cfg.get("use_bf16",        USE_BF16)
+    use_compile     = cfg.get("use_compile",     USE_COMPILE)
+    train_seq_len   = cfg.get("train_seq_len",   TRAIN_SEQ_LEN)
 
     train_data, val_data, vocab_size = load_data()
 
-    model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout).to(device)
+    model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout, ffn_mult, use_swiglu).to(device)
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Device: {device} | params: {num_params:,} | vocab: {vocab_size}")
+    if use_compile:
+        model = torch.compile(model)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay,
+                                  betas=(0.9, adam_beta2), eps=adam_eps)
 
     t_start     = time.time()
     step        = 0
@@ -156,15 +210,18 @@ def main():
             break
 
         # Update learning rate
-        current_lr = get_lr(elapsed, lr)
+        current_lr = get_lr(elapsed, lr, min_lr_ratio, warmup_secs, num_lr_cycles)
         for pg in optimizer.param_groups:
             pg["lr"] = current_lr
 
-        x, y = get_batch(train_data, batch_size, MAX_SEQ_LEN)
-        loss = model(x, y)
+        x, y = get_batch(train_data, batch_size, train_seq_len)
+        with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=use_bf16):
+            logits = model(x)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1),
+                                   label_smoothing=label_smoothing)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
 
         lv = loss.item()
