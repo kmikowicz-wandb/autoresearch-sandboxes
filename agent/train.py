@@ -29,8 +29,10 @@ DROPOUT      = 0.0
 BATCH_SIZE   = 32
 LR           = 5e-3
 WEIGHT_DECAY = 0.01
-MIN_LR_RATIO = 0.0  # cosine decays to 0 (full decay)
-WARMUP_SECS  = 10.0  # linear warmup duration in seconds
+MIN_LR_RATIO    = 0.0  # cosine decays to 0 (full decay)
+WARMUP_SECS     = 10.0  # linear warmup duration in seconds
+NUM_LR_CYCLES   = 1    # cosine LR cycles (SGDR); >1 = warm restarts
+LABEL_SMOOTHING = 0.0  # cross-entropy label smoothing
 ADAM_BETA2   = 0.99  # AdamW beta2 — shorter memory than default 0.999; adapts faster
 ADAM_EPS     = 1e-8  # AdamW eps — bf16 gradients may need larger eps for stability
 GRAD_CLIP    = 0.5   # gradient clip norm
@@ -125,11 +127,13 @@ class CharTransformer(nn.Module):
 # Learning rate schedule: linear warmup then cosine decay over TIME_BUDGET
 # ---------------------------------------------------------------------------
 
-def get_lr(elapsed: float, lr: float, min_lr_ratio: float, warmup_secs: float = 5.0) -> float:
+def get_lr(elapsed: float, lr: float, min_lr_ratio: float, warmup_secs: float = 5.0,
+           num_cycles: int = 1) -> float:
     if elapsed < warmup_secs:
         return lr * elapsed / warmup_secs
     progress = min((elapsed - warmup_secs) / (TIME_BUDGET - warmup_secs), 1.0)
-    cosine_factor = 0.5 * (1.0 + math.cos(math.pi * progress))
+    cycle_progress = (progress * num_cycles) % 1.0
+    cosine_factor = 0.5 * (1.0 + math.cos(math.pi * cycle_progress))
     return lr * (min_lr_ratio + (1.0 - min_lr_ratio) * cosine_factor)
 
 
@@ -157,11 +161,13 @@ def main():
     weight_decay = cfg.get("weight_decay", WEIGHT_DECAY)
     min_lr_ratio = cfg.get("min_lr_ratio", MIN_LR_RATIO)
     warmup_secs  = cfg.get("warmup_secs",  WARMUP_SECS)
-    adam_beta2   = cfg.get("adam_beta2",   ADAM_BETA2)
-    adam_eps     = cfg.get("adam_eps",     ADAM_EPS)
-    grad_clip    = cfg.get("grad_clip",    GRAD_CLIP)
-    use_bf16     = cfg.get("use_bf16",     USE_BF16)
-    use_compile  = cfg.get("use_compile",  USE_COMPILE)
+    adam_beta2      = cfg.get("adam_beta2",      ADAM_BETA2)
+    adam_eps        = cfg.get("adam_eps",        ADAM_EPS)
+    grad_clip       = cfg.get("grad_clip",       GRAD_CLIP)
+    num_lr_cycles   = cfg.get("num_lr_cycles",   NUM_LR_CYCLES)
+    label_smoothing = cfg.get("label_smoothing", LABEL_SMOOTHING)
+    use_bf16        = cfg.get("use_bf16",        USE_BF16)
+    use_compile     = cfg.get("use_compile",     USE_COMPILE)
 
     train_data, val_data, vocab_size = load_data()
 
@@ -184,13 +190,15 @@ def main():
             break
 
         # Update learning rate
-        current_lr = get_lr(elapsed, lr, min_lr_ratio, warmup_secs)
+        current_lr = get_lr(elapsed, lr, min_lr_ratio, warmup_secs, num_lr_cycles)
         for pg in optimizer.param_groups:
             pg["lr"] = current_lr
 
         x, y = get_batch(train_data, batch_size, MAX_SEQ_LEN)
         with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=use_bf16):
-            loss = model(x, y)
+            logits = model(x)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1),
+                                   label_smoothing=label_smoothing)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), grad_clip)

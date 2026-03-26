@@ -31,9 +31,9 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # Fine-tune grad_clip around 0.5 optimum + explore batch sizes
-        "grad_clip":  {"values": [0.3, 0.5, 0.7]},
-        "batch_size": {"values": [16, 24, 32]},
+        # Label smoothing + cosine restarts (SGDR) — two untested levers
+        "label_smoothing": {"values": [0.0, 0.05, 0.1]},
+        "num_lr_cycles":   {"values": [1, 2, 3]},
     },
 }
 
