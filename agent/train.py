@@ -33,7 +33,7 @@ MIN_LR_RATIO = 0.0  # cosine decays to 0 (full decay)
 WARMUP_SECS  = 10.0  # linear warmup duration in seconds
 ADAM_BETA2   = 0.99  # AdamW beta2 — shorter memory than default 0.999; adapts faster
 ADAM_EPS     = 1e-8  # AdamW eps — bf16 gradients may need larger eps for stability
-GRAD_CLIP    = 1.0   # gradient clip norm
+GRAD_CLIP    = 0.5   # gradient clip norm
 USE_BF16     = True   # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
 USE_COMPILE  = False  # torch.compile — fuses ops, may speed up CPU forward pass
 # ---------------------------------------------------------------------------

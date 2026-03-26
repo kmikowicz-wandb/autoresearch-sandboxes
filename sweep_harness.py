@@ -31,9 +31,9 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # Tune grad clipping + Adam eps with bf16 (bf16 gradients behave differently)
-        "grad_clip": {"values": [0.3, 0.5, 1.0, 2.0, 5.0]},
-        "adam_eps":  {"values": [1e-8, 1e-6]},
+        # Fine-tune grad_clip around 0.5 optimum + explore batch sizes
+        "grad_clip":  {"values": [0.3, 0.5, 0.7]},
+        "batch_size": {"values": [16, 24, 32]},
     },
 }
 

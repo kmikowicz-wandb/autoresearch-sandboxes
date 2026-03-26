@@ -17,3 +17,4 @@ fd67445	2.603069	discard	sweep ffn_mult=[0,1] x n_embd=[192,256,320] — ffn_mul
 ce8e4c0	2.497695	keep	sweep min_lr_ratio=[0,0.05,0.1,0.2] x warmup_secs=[2,5,10] — best: min_lr_ratio=0, warmup_secs=10
 4103af0	2.501694	discard	sweep n_embd=[128..256] x n_layer=[1,2] with bf16 — n_layer=2 worse; n_embd=192 still best
 baf089c	2.501394	keep	sweep adam_beta2=[0.9..0.999] x compile — best: beta2=0.99, compile hurts (overhead)
+d9666d4	2.492022	keep	sweep grad_clip=[0.3..5] x adam_eps=[1e-8,1e-6] — best: grad_clip=0.5, eps=1e-8
