@@ -24,6 +24,8 @@ from prepare import (
 N_LAYER    = 2
 N_EMBD     = 64
 N_HEAD     = 2
+FFN_MULT   = 4   # FFN hidden dim = FFN_MULT * n_embd
+SEQ_LEN    = 128 # training sequence length (eval always uses MAX_SEQ_LEN=256)
 DROPOUT    = 0.0
 BATCH_SIZE = 16
 LR         = 3e-3
@@ -48,17 +50,18 @@ def get_batch(data: np.ndarray, batch_size: int, seq_len: int):
 # ---------------------------------------------------------------------------
 
 class Block(nn.Module):
-    def __init__(self, n_embd: int, n_head: int, dropout: float):
+    def __init__(self, n_embd: int, n_head: int, dropout: float, ffn_mult: int = 4):
         super().__init__()
         assert n_embd % n_head == 0
         self.ln1  = nn.LayerNorm(n_embd)
         self.ln2  = nn.LayerNorm(n_embd)
         self.qkv  = nn.Linear(n_embd, 3 * n_embd, bias=False)
         self.proj = nn.Linear(n_embd, n_embd, bias=False)
+        ffn_dim   = ffn_mult * n_embd
         self.mlp  = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
+            nn.Linear(n_embd, ffn_dim),
             nn.GELU(),
-            nn.Linear(4 * n_embd, n_embd),
+            nn.Linear(ffn_dim, n_embd),
             nn.Dropout(dropout),
         )
         self.n_head   = n_head
@@ -80,15 +83,14 @@ class Block(nn.Module):
 
 class CharTransformer(nn.Module):
     def __init__(self, vocab_size: int, n_layer: int, n_embd: int, n_head: int,
-                 seq_len: int, dropout: float):
+                 seq_len: int, dropout: float, ffn_mult: int = 4):
         super().__init__()
         self.tok_emb = nn.Embedding(vocab_size, n_embd)
         self.pos_emb = nn.Embedding(seq_len, n_embd)
         self.drop    = nn.Dropout(dropout)
-        self.blocks  = nn.ModuleList([Block(n_embd, n_head, dropout) for _ in range(n_layer)])
+        self.blocks  = nn.ModuleList([Block(n_embd, n_head, dropout, ffn_mult) for _ in range(n_layer)])
         self.ln_f    = nn.LayerNorm(n_embd)
         self.head    = nn.Linear(n_embd, vocab_size, bias=False)
-        self.head.weight = self.tok_emb.weight  # weight tying
         self._init_weights()
 
     def _init_weights(self):
@@ -135,13 +137,15 @@ def main():
     n_layer    = cfg.get("n_layer",    N_LAYER)
     n_embd     = cfg.get("n_embd",     N_EMBD)
     n_head     = cfg.get("n_head",     N_HEAD)
+    ffn_mult   = cfg.get("ffn_mult",   FFN_MULT)
+    seq_len    = cfg.get("seq_len",    SEQ_LEN)
     dropout    = cfg.get("dropout",    DROPOUT)
     batch_size = cfg.get("batch_size", BATCH_SIZE)
     lr         = cfg.get("lr",         LR)
 
     train_data, val_data, vocab_size = load_data()
 
-    model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout).to(device)
+    model = CharTransformer(vocab_size, n_layer, n_embd, n_head, MAX_SEQ_LEN, dropout, ffn_mult).to(device)
     num_params = sum(p.numel() for p in model.parameters())
     print(f"Device: {device} | params: {num_params:,} | vocab: {vocab_size}")
 
@@ -161,7 +165,7 @@ def main():
         for pg in optimizer.param_groups:
             pg["lr"] = current_lr
 
-        x, y = get_batch(train_data, batch_size, MAX_SEQ_LEN)
+        x, y = get_batch(train_data, batch_size, seq_len)
         loss = model(x, y)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
