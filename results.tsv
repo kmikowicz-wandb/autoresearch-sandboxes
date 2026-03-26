@@ -20,3 +20,4 @@ baf089c	2.501394	keep	sweep adam_beta2=[0.9..0.999] x compile — best: beta2=0.
 d9666d4	2.492022	keep	sweep grad_clip=[0.3..5] x adam_eps=[1e-8,1e-6] — best: grad_clip=0.5, eps=1e-8
 ad429f0	2.493942	discard	sweep grad_clip=[0.3,0.5,0.7] x batch_size=[16,24,32] — batch_size=32, grad_clip=0.3 best but not better
 217890a	2.510122	discard	sweep label_smoothing=[0,0.05,0.1] x num_cycles=[1,2,3] — neither helps; smoothing=0, cycles=1 best
+b3zcny3f	2.472354	keep	sweep use_swiglu=[T,F] — SwiGLU beats GELU (2.472 vs 2.525), more steps too (1006 vs 912)

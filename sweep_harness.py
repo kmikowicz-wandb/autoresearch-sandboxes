@@ -31,14 +31,12 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # SwiGLU vs GELU FFN (param-parity; SwiGLU has gated activation like LLaMA)
-        # Also re-test ffn_mult with SwiGLU at various sizes
-        "use_swiglu": {"values": [True, False]},
-        "ffn_mult":   {"values": [1, 2, 3]},
+        # ffn_mult sweep with SwiGLU — partial first run hinted ffn_mult=2 gives 2.460
+        "ffn_mult": {"values": [1, 2, 3, 4]},
     },
 }
 
-NUM_AGENTS = 4
+NUM_AGENTS = 2
 RESOURCES  = SandboxResources(cpus=8, memory=16)
 # ---------------------------------------------------------------------------
 

@@ -25,7 +25,7 @@ N_LAYER      = 1
 N_EMBD       = 192
 N_HEAD       = 2
 FFN_MULT     = 1   # FFN hidden dim = FFN_MULT * n_embd
-USE_SWIGLU   = False  # replace GELU FFN with SwiGLU (param-parity: hidden = 2/3 * ffn_mult * n_embd)
+USE_SWIGLU   = True   # replace GELU FFN with SwiGLU (param-parity: hidden = 2/3 * ffn_mult * n_embd)
 DROPOUT      = 0.0
 BATCH_SIZE   = 32
 LR           = 5e-3
