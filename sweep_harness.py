@@ -31,10 +31,9 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # Test Adam beta2 (shorter memory = faster adaptation for short runs)
-        # + torch.compile for potential free speedup via op fusion
-        "adam_beta2":  {"values": [0.9, 0.95, 0.99, 0.999]},
-        "use_compile": {"values": [True, False]},
+        # Tune grad clipping + Adam eps with bf16 (bf16 gradients behave differently)
+        "grad_clip": {"values": [0.3, 0.5, 1.0, 2.0, 5.0]},
+        "adam_eps":  {"values": [1e-8, 1e-6]},
     },
 }
 

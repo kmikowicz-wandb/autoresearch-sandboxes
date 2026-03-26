@@ -31,7 +31,9 @@ LR           = 5e-3
 WEIGHT_DECAY = 0.01
 MIN_LR_RATIO = 0.0  # cosine decays to 0 (full decay)
 WARMUP_SECS  = 10.0  # linear warmup duration in seconds
-ADAM_BETA2   = 0.999  # AdamW beta2 — shorter memory (0.95-0.99) adapts faster
+ADAM_BETA2   = 0.99  # AdamW beta2 — shorter memory than default 0.999; adapts faster
+ADAM_EPS     = 1e-8  # AdamW eps — bf16 gradients may need larger eps for stability
+GRAD_CLIP    = 1.0   # gradient clip norm
 USE_BF16     = True   # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
 USE_COMPILE  = False  # torch.compile — fuses ops, may speed up CPU forward pass
 # ---------------------------------------------------------------------------
@@ -156,6 +158,8 @@ def main():
     min_lr_ratio = cfg.get("min_lr_ratio", MIN_LR_RATIO)
     warmup_secs  = cfg.get("warmup_secs",  WARMUP_SECS)
     adam_beta2   = cfg.get("adam_beta2",   ADAM_BETA2)
+    adam_eps     = cfg.get("adam_eps",     ADAM_EPS)
+    grad_clip    = cfg.get("grad_clip",    GRAD_CLIP)
     use_bf16     = cfg.get("use_bf16",     USE_BF16)
     use_compile  = cfg.get("use_compile",  USE_COMPILE)
 
@@ -168,7 +172,7 @@ def main():
         model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay,
-                                  betas=(0.9, adam_beta2))
+                                  betas=(0.9, adam_beta2), eps=adam_eps)
 
     t_start     = time.time()
     step        = 0
@@ -189,7 +193,7 @@ def main():
             loss = model(x, y)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
 
         lv = loss.item()
