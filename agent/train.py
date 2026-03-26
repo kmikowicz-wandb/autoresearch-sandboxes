@@ -30,6 +30,7 @@ BATCH_SIZE   = 32
 LR           = 5e-3
 WEIGHT_DECAY = 0.01
 MIN_LR_RATIO = 0.1  # cosine decays to MIN_LR_RATIO * LR instead of 0
+WARMUP_SECS  = 5.0  # linear warmup duration in seconds
 USE_BF16     = True  # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
 # ---------------------------------------------------------------------------
 
@@ -151,6 +152,7 @@ def main():
     lr           = cfg.get("lr",           LR)
     weight_decay = cfg.get("weight_decay", WEIGHT_DECAY)
     min_lr_ratio = cfg.get("min_lr_ratio", MIN_LR_RATIO)
+    warmup_secs  = cfg.get("warmup_secs",  WARMUP_SECS)
     use_bf16     = cfg.get("use_bf16",     USE_BF16)
 
     train_data, val_data, vocab_size = load_data()
@@ -171,7 +173,7 @@ def main():
             break
 
         # Update learning rate
-        current_lr = get_lr(elapsed, lr, min_lr_ratio)
+        current_lr = get_lr(elapsed, lr, min_lr_ratio, warmup_secs)
         for pg in optimizer.param_groups:
             pg["lr"] = current_lr
 
