@@ -30,6 +30,7 @@ BATCH_SIZE   = 32
 LR           = 3e-3
 WEIGHT_DECAY = 0.01
 MIN_LR_RATIO = 0.1  # cosine decays to MIN_LR_RATIO * LR instead of 0
+USE_BF16     = True  # bfloat16 autocast on CPU (AMD EPYC supports native BF16)
 # ---------------------------------------------------------------------------
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -150,6 +151,7 @@ def main():
     lr           = cfg.get("lr",           LR)
     weight_decay = cfg.get("weight_decay", WEIGHT_DECAY)
     min_lr_ratio = cfg.get("min_lr_ratio", MIN_LR_RATIO)
+    use_bf16     = cfg.get("use_bf16",     USE_BF16)
 
     train_data, val_data, vocab_size = load_data()
 
@@ -174,7 +176,8 @@ def main():
             pg["lr"] = current_lr
 
         x, y = get_batch(train_data, batch_size, MAX_SEQ_LEN)
-        loss = model(x, y)
+        with torch.autocast(device_type="cpu", dtype=torch.bfloat16, enabled=use_bf16):
+            loss = model(x, y)
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)

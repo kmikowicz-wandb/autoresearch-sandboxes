@@ -31,9 +31,9 @@ SWEEP_CONFIG = {
     "metric": {"name": "final/val_bpb", "goal": "minimize"},
     "program": "train.py",
     "parameters": {
-        # ffn_mult=0 = attention-only (no MLP), faster steps; test if worth the capacity loss
-        "ffn_mult": {"values": [0, 1]},
-        "n_embd":   {"values": [192, 256, 320]},
+        # Test bfloat16 autocast (AMD EPYC Zen5 supports native BF16 — could 2x throughput)
+        "use_bf16": {"values": [True, False]},
+        "lr":       {"values": [2e-3, 3e-3, 5e-3]},
     },
 }
 
