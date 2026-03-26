@@ -21,11 +21,11 @@ from prepare import (
 # ---------------------------------------------------------------------------
 # Hyperparameters (sweep can override any of these via wandb.config)
 # ---------------------------------------------------------------------------
-N_LAYER    = 4
-N_EMBD     = 128
+N_LAYER    = 2
+N_EMBD     = 64
 N_HEAD     = 4
 DROPOUT    = 0.0
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 LR         = 3e-3
 # ---------------------------------------------------------------------------
 
